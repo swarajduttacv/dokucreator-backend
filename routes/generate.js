@@ -301,18 +301,32 @@ The JSON MUST follow this exact structure:
 
 Do NOT include a "chart" field unless the user explicitly asks for a new chart.`;
 
-      const completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          { role: 'system', content: slideSystemPrompt },
-          { role: 'user', content: prompt },
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.85,
-        max_tokens: 4096,
-      });
+      try {
+        const completion = await groq.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system', content: slideSystemPrompt },
+            { role: 'user', content: prompt },
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.85,
+          max_tokens: 4096,
+        });
 
-      result = JSON.parse(completion.choices[0].message.content);
+        result = JSON.parse(completion.choices[0].message.content);
+      } catch (groqError) {
+        console.warn('Groq slide failed, falling back to Gemini:', groqError.message);
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: slideGenerationSchema,
+          },
+        });
+        result = JSON.parse(response.text.trim());
+      }
     } else {
       const ai = getAiClient();
       const response = await ai.models.generateContent({
@@ -473,28 +487,74 @@ Generate at least 2-3 embedded visualizations throughout the report. These shoul
     let htmlContent;
 
     if (groq) {
-      const groqReportInstruction = systemInstruction + `\n\n**CRITICAL PAGE DENSITY RULES (FOLLOW STRICTLY):**
-1. Each page MUST contain at LEAST 300-400 words of substantive content.
-2. NEVER leave blank space on a page — fill every page with detailed analysis, examples, tables, or embedded visualizations.
-3. Do NOT use excessive margins, line breaks, or spacing to artificially inflate page count.
-4. If the user requests ${pageCount} pages, generate DENSE content that genuinely fills ${pageCount} pages when printed.
-5. Each section should have multiple paragraphs with deep analysis, real-world examples, industry benchmarks, and actionable recommendations.
-6. Use the embedded visualization CSS classes (.callout, .metric-box, .bar-chart, table) to create rich visual content that adds substance, NOT just decoration.
-7. Output ONLY the HTML content — no markdown, no code fences, no explanatory text before or after the HTML.`;
+      // Use a CONDENSED prompt for Groq to stay within token limits
+      const groqReportPrompt = `You are an expert ${style} report writer. Generate a professional HTML report.
 
-      const completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          { role: 'system', content: groqReportInstruction },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.7,
-        max_tokens: 32768,
-      });
-      htmlContent = completion.choices[0].message.content;
-      // Strip markdown code fences if Groq wraps the HTML
-      if (htmlContent.startsWith('```')) {
-        htmlContent = htmlContent.replace(/^```(?:html)?\n?/, '').replace(/\n?```$/, '');
+**FORMAT RULES:**
+1. Output ONLY clean HTML — no markdown, no code fences, no \`\`\`.
+2. Start with this style block, then the content:
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  body { font-family: 'Inter', Arial, sans-serif; line-height: 1.8; color: #1a1a2e; }
+  h1 { text-align: center; font-size: 2.5em; color: #16213e; font-weight: 700; margin-bottom: 0.3em; }
+  h1 + p.subtitle { text-align: center; font-size: 1.1em; color: #666; margin-bottom: 2em; font-style: italic; }
+  h2 { font-size: 1.8em; border-bottom: 3px solid #0f3460; padding-bottom: 0.3em; margin-top: 2em; color: #0f3460; font-weight: 600; }
+  h3 { font-size: 1.3em; color: #16213e; margin-top: 1.5em; font-weight: 600; }
+  p { margin-bottom: 1em; text-align: justify; }
+  b, strong { color: #0f3460; }
+  table { width: 100%; border-collapse: collapse; margin: 1.5em 0; }
+  th { background: #0f3460; color: white; padding: 0.8em 1em; text-align: left; }
+  td { padding: 0.7em 1em; border-bottom: 1px solid #e0e0e0; }
+  tr:nth-child(even) td { background: #f8f9fa; }
+  .callout { background: #f0f4ff; border-left: 4px solid #0f3460; padding: 1em 1.5em; margin: 1.5em 0; border-radius: 0 8px 8px 0; }
+  .callout h4 { color: #0f3460; margin: 0 0 0.5em 0; }
+  .metric-box { display: inline-block; background: #e8f0fe; border: 1px solid #c2d6f2; border-radius: 8px; padding: 0.8em 1.2em; margin: 0.3em; text-align: center; min-width: 140px; }
+  .metric-box .value { font-size: 1.8em; font-weight: 700; color: #0f3460; display: block; }
+  .metric-box .label { font-size: 0.85em; color: #666; display: block; }
+</style>
+3. Use <h1> for title, <h2> for sections, <h3> for subsections.
+4. Include <table>, <div class="callout">, and <div class="metric-box"> elements for rich content.
+5. NO <html>, <head>, or <body> tags.
+
+**CONTENT RULES:**
+- Target length: ${pageCount} pages of DENSE content (300-400 words per page).
+- NEVER pad with blank space. Fill every section with detailed analysis, examples, and data.
+- Include at least 2-3 embedded visualizations (tables, callout boxes, metric boxes).
+
+**Report Components:**
+${componentList}
+
+**Report Style:** ${style}
+
+**Main Content:**
+---
+${details}
+---`;
+
+      try {
+        const completion = await groq.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'user', content: groqReportPrompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 8192,
+        });
+        htmlContent = completion.choices[0].message.content;
+        // Strip markdown code fences if Groq wraps the HTML
+        if (htmlContent.startsWith('\`\`\`')) {
+          htmlContent = htmlContent.replace(/^\`\`\`(?:html)?\n?/, '').replace(/\n?\`\`\`$/, '');
+        }
+      } catch (groqError) {
+        console.warn('Groq report failed, falling back to Gemini:', groqError.message);
+        // Fallback to Gemini
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: userPrompt,
+          config: { systemInstruction: systemInstruction },
+        });
+        htmlContent = response.text;
       }
     } else {
       const ai = getAiClient();
