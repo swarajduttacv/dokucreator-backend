@@ -133,18 +133,43 @@ router.post('/charts', auth, async (req, res) => {
       });
     }
 
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: { parts },
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: chartGenerationSchema,
-      },
-    });
+    let result;
+    try {
+      const ai = getAiClient();
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: { parts },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: chartGenerationSchema,
+        },
+      });
+      const jsonText = response.text.trim();
+      result = JSON.parse(jsonText);
+    } catch (geminiError) {
+      // Fallback to Groq if Gemini fails (rate limit, etc.)
+      const groq = getGroqClient();
+      if (!groq) throw geminiError;
 
-    const jsonText = response.text.trim();
-    const result = JSON.parse(jsonText);
+      console.warn('Gemini chart failed, falling back to Groq:', geminiError.message);
+      const chartPrompt = parts[0].text + `\n\nRespond with ONLY a JSON array. Each element must have: title (string), chartType (bar|line|pie|area|composed), data (JSON string of array of objects), labelKey (string), dataKeys (array of strings). Example: [{"title":"...", "chartType":"bar", "data":"[{\\"label\\":\\"A\\",\\"value\\":10}]", "labelKey":"label", "dataKeys":["value"]}]`;
+
+      const completion = await groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'user', content: chartPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.7,
+        max_tokens: 4096,
+      });
+      
+      let parsed = JSON.parse(completion.choices[0].message.content);
+      // Groq may wrap in an object like { charts: [...] }
+      result = Array.isArray(parsed) ? parsed : (parsed.charts || parsed.suggestions || Object.values(parsed)[0]);
+    }
+
+    const jsonText = null; // already parsed above
 
     if (!Array.isArray(result)) {
       throw new Error('AI response is not an array.');
