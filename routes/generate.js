@@ -1,5 +1,6 @@
 import express from 'express';
 import { GoogleGenAI, Type } from '@google/genai';
+import Groq from 'groq-sdk';
 import auth from '../middleware/auth.js';
 import { recommendChartTypes } from '../utils/chartRecommender.js';
 import { analyzeData, generateAnalysisSummaryForPrompt } from '../utils/dataAnalyzer.js';
@@ -12,6 +13,12 @@ const getAiClient = () => {
     throw new Error('GEMINI_API_KEY is not configured on the server.');
   }
   return new GoogleGenAI({ apiKey });
+};
+
+const getGroqClient = () => {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return null; // Fallback to Gemini if no Groq key
+  return new Groq({ apiKey });
 };
 
 // ========== CHART GENERATION ==========
@@ -261,18 +268,37 @@ router.post('/slides', auth, async (req, res) => {
       prompt += `**Chart Data:**\n\`\`\`json\n${JSON.stringify(selectedChart.chart.data, null, 2)}\n\`\`\`\n`;
     }
 
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: slideGenerationSchema,
-      },
-    });
+    // Try Groq first, fallback to Gemini
+    const groq = getGroqClient();
+    let result;
 
-    const jsonText = response.text.trim();
-    const result = JSON.parse(jsonText);
+    if (groq) {
+      const slideSystemPrompt = `You are a SENIOR BUSINESS ANALYST. You MUST respond with valid JSON only. The JSON must have this structure: { "title": "string", "content": ["bullet1", "bullet2", ...], "style": { "font": "string", "color": "#hex", "backgroundColor": "#hex", "colorPaletteName": "string" } }. Do NOT include a "chart" field unless explicitly asked.`;
+
+      const completion = await groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: slideSystemPrompt },
+          { role: 'user', content: prompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.7,
+        max_tokens: 4096,
+      });
+
+      result = JSON.parse(completion.choices[0].message.content);
+    } else {
+      const ai = getAiClient();
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: slideGenerationSchema,
+        },
+      });
+      result = JSON.parse(response.text.trim());
+    }
 
     if (result.chart && typeof result.chart.data === 'string') {
       try { result.chart.data = JSON.parse(result.chart.data); } catch { result.chart = undefined; }
@@ -416,16 +442,34 @@ Generate at least 2-3 embedded visualizations throughout the report. These shoul
 
     const userPrompt = `Generate a report.\n\n**Report Components:**\n${componentList}\n\n**Target Length:** ${pageCount} pages.\n\n**Report Style:** ${style}\n\n**Main Content:**\n---\n${details}\n---`;
 
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: userPrompt,
-      config: {
-        systemInstruction: systemInstruction,
-      },
-    });
+    // Try Groq first, fallback to Gemini
+    const groq = getGroqClient();
+    let htmlContent;
 
-    res.json({ html: response.text });
+    if (groq) {
+      const completion = await groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 8192,
+      });
+      htmlContent = completion.choices[0].message.content;
+    } else {
+      const ai = getAiClient();
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemInstruction,
+        },
+      });
+      htmlContent = response.text;
+    }
+
+    res.json({ html: htmlContent });
   } catch (error) {
     console.error('Report generation error:', error);
     res.status(500).json({ error: error.message || 'Failed to generate report.' });
