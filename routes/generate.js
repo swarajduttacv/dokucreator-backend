@@ -392,7 +392,7 @@ Response: JSON object with key "colors" containing exactly 6 hex strings.`;
 
 router.post('/reports', auth, async (req, res) => {
   try {
-    const { details, components, pageCount, reportStyle } = req.body;
+    const { details, components, pageCount, reportStyle, aiModel } = req.body;
 
     if (!details?.trim()) {
       return res.status(400).json({ error: 'Please provide report details.' });
@@ -482,8 +482,9 @@ Generate at least 2-3 embedded visualizations throughout the report. These shoul
 
     const userPrompt = `Generate a report.\n\n**Report Components:**\n${componentList}\n\n**Target Length:** ${pageCount} pages.\n\n**Report Style:** ${style}\n\n**Main Content:**\n---\n${details}\n---`;
 
-    // Try Groq first, fallback to Gemini
-    const groq = getGroqClient();
+    // Use model based on user selection
+    const useGroq = aiModel === 'groq' && getGroqClient();
+    const groq = useGroq ? getGroqClient() : null;
     let htmlContent;
 
     if (groq) {
