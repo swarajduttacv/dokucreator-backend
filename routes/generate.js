@@ -51,7 +51,7 @@ router.post('/charts', auth, async (req, res) => {
     // Step 1: Try to parse data for local analysis
     let localAnalysis = null;
     let recommendations = null;
-    
+
     if (textData) {
       const parsedData = tryParseTabularData(textData);
       if (parsedData && parsedData.length > 0) {
@@ -62,7 +62,7 @@ router.post('/charts', auth, async (req, res) => {
 
     // Step 2: Build enhanced prompt
     const numVariants = chartVariants || (recommendations ? recommendations.recommendations.length : 3);
-    
+
     let prompt = `You are an elite data visualization expert at a top consulting firm. Analyze the following data and create exactly ${numVariants} powerful, insightful chart suggestions.\n\n`;
 
     // Inject chart type constraints
@@ -100,7 +100,7 @@ router.post('/charts', auth, async (req, res) => {
 
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash',
+      model: 'gemini-3-flash-preview',
       contents: { parts },
       config: {
         responseMimeType: 'application/json',
@@ -235,7 +235,7 @@ router.post('/slides', auth, async (req, res) => {
 
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.1-pro',
+      model: 'gemini-3.1-pro-preview',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -278,7 +278,7 @@ Response: JSON object with key "colors" containing exactly 6 hex strings.`;
 
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: { responseMimeType: 'application/json', responseSchema: schema },
     });
@@ -390,7 +390,7 @@ Generate at least 2-3 embedded visualizations throughout the report. These shoul
 
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.1-pro',
+      model: 'gemini-3.1-pro-preview',
       contents: userPrompt,
       config: {
         systemInstruction: systemInstruction,
