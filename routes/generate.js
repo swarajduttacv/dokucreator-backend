@@ -100,7 +100,7 @@ router.post('/charts', auth, async (req, res) => {
 
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-preview-05-20',
+      model: 'gemini-2.0-flash',
       contents: { parts },
       config: {
         responseMimeType: 'application/json',
@@ -235,7 +235,7 @@ router.post('/slides', auth, async (req, res) => {
 
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-preview-05-20',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -278,7 +278,7 @@ Response: JSON object with key "colors" containing exactly 6 hex strings.`;
 
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-preview-05-20',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: { responseMimeType: 'application/json', responseSchema: schema },
     });
@@ -390,7 +390,7 @@ Generate at least 2-3 embedded visualizations throughout the report. These shoul
 
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-preview-05-20',
+      model: 'gemini-2.0-flash',
       contents: userPrompt,
       config: {
         systemInstruction: systemInstruction,
