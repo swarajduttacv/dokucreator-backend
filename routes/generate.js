@@ -48,19 +48,46 @@ router.post('/charts', auth, async (req, res) => {
       return res.status(400).json({ error: 'Please provide data to analyze.' });
     }
 
-    // Step 1: Try to parse data for local analysis
+    // Step 1: Parse file data if provided
+    let extractedFileText = '';
+    if (fileData) {
+      const { base64, mimeType } = fileData;
+      const buffer = Buffer.from(base64, 'base64');
+
+      if (mimeType === 'text/csv' || mimeType === 'text/plain') {
+        // CSV/Text: just decode to string
+        extractedFileText = buffer.toString('utf-8');
+      } else if (
+        mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        mimeType === 'application/vnd.ms-excel'
+      ) {
+        // Excel: parse with xlsx and convert to CSV
+        const XLSX = await import('xlsx');
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        extractedFileText = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+      } else {
+        // PDF, Word, etc. — Gemini supports these natively
+        extractedFileText = null; // will send as inlineData instead
+      }
+    }
+
+    // Combine text sources
+    const combinedText = [textData, extractedFileText].filter(Boolean).join('\n\n');
+
+    // Step 2: Try to parse combined data for local analysis
     let localAnalysis = null;
     let recommendations = null;
 
-    if (textData) {
-      const parsedData = tryParseTabularData(textData);
+    if (combinedText.trim()) {
+      const parsedData = tryParseTabularData(combinedText);
       if (parsedData && parsedData.length > 0) {
         recommendations = recommendChartTypes(parsedData, preferredChartType || 'auto');
         localAnalysis = analyzeData(parsedData, recommendations.labelKey, recommendations.dataKeys);
       }
     }
 
-    // Step 2: Build enhanced prompt
+    // Step 3: Build enhanced prompt
     const numVariants = chartVariants || (recommendations ? recommendations.recommendations.length : 3);
 
     let prompt = `You are an elite data visualization expert at a top consulting firm. Analyze the following data and create exactly ${numVariants} powerful, insightful chart suggestions.\n\n`;
@@ -86,10 +113,11 @@ router.post('/charts', auth, async (req, res) => {
       prompt += `\nUser preferences: "${chartPreferences}"\n`;
     }
 
-    const textPart = { text: prompt + (textData ? `\n\nData:\n\`\`\`\n${textData}\n\`\`\`` : '') };
+    const textPart = { text: prompt + (combinedText ? `\n\nData:\n\`\`\`\n${combinedText}\n\`\`\`` : '') };
     const parts = [textPart];
 
-    if (fileData) {
+    // Only send as inlineData for MIME types Gemini supports natively (PDF, images, etc.)
+    if (fileData && extractedFileText === null) {
       parts.push({
         inlineData: {
           data: fileData.base64,
