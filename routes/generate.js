@@ -273,7 +273,33 @@ router.post('/slides', auth, async (req, res) => {
     let result;
 
     if (groq) {
-      const slideSystemPrompt = `You are a SENIOR BUSINESS ANALYST. You MUST respond with valid JSON only. The JSON must have this structure: { "title": "string", "content": ["bullet1", "bullet2", ...], "style": { "font": "string", "color": "#hex", "backgroundColor": "#hex", "colorPaletteName": "string" } }. Do NOT include a "chart" field unless explicitly asked.`;
+      const slideSystemPrompt = `You are a SENIOR BUSINESS ANALYST at McKinsey & Company. You MUST respond with ONLY valid JSON, no other text.
+
+The JSON MUST follow this exact structure:
+{
+  "title": "A compelling, specific title with key metrics",
+  "content": ["bullet1", "bullet2", ...],
+  "style": {
+    "font": "Arial",
+    "color": "#1a1a1a",
+    "backgroundColor": "#hex based on user theme",
+    "colorPaletteName": "name from user theme"
+  }
+}
+
+**CRITICAL COLOR RULES:**
+- The "color" field is for TEXT. It MUST always be a dark readable color: "#1a1a1a" (for light backgrounds) or "#f5f5f5" (for dark backgrounds).
+- NEVER use blue, navy, or any bright color as the text color.
+- The "backgroundColor" should match the user's requested theme/palette.
+
+**CRITICAL CONTENT RULES:**
+- Each bullet MUST be completely UNIQUE — no repeated ideas across different tones or styles.
+- Each bullet MUST contain at least one quantified metric (percentage, number, or comparison).
+- Structure each bullet as: [Data Point] → [Business Implication] → [Actionable Insight]
+- Vary your analytical angle based on the tone: "Professional" = strategic, "Casual" = conversational with metaphors, "Academic" = research-backed, "Executive" = bottom-line focused.
+- Do NOT repeat the same 5-6 generic points. Deeply analyze the specific data provided.
+
+Do NOT include a "chart" field unless the user explicitly asks for a new chart.`;
 
       const completion = await groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
@@ -282,7 +308,7 @@ router.post('/slides', auth, async (req, res) => {
           { role: 'user', content: prompt },
         ],
         response_format: { type: 'json_object' },
-        temperature: 0.7,
+        temperature: 0.85,
         max_tokens: 4096,
       });
 
@@ -447,16 +473,29 @@ Generate at least 2-3 embedded visualizations throughout the report. These shoul
     let htmlContent;
 
     if (groq) {
+      const groqReportInstruction = systemInstruction + `\n\n**CRITICAL PAGE DENSITY RULES (FOLLOW STRICTLY):**
+1. Each page MUST contain at LEAST 300-400 words of substantive content.
+2. NEVER leave blank space on a page — fill every page with detailed analysis, examples, tables, or embedded visualizations.
+3. Do NOT use excessive margins, line breaks, or spacing to artificially inflate page count.
+4. If the user requests ${pageCount} pages, generate DENSE content that genuinely fills ${pageCount} pages when printed.
+5. Each section should have multiple paragraphs with deep analysis, real-world examples, industry benchmarks, and actionable recommendations.
+6. Use the embedded visualization CSS classes (.callout, .metric-box, .bar-chart, table) to create rich visual content that adds substance, NOT just decoration.
+7. Output ONLY the HTML content — no markdown, no code fences, no explanatory text before or after the HTML.`;
+
       const completion = await groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: systemInstruction },
+          { role: 'system', content: groqReportInstruction },
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.7,
-        max_tokens: 8192,
+        max_tokens: 32768,
       });
       htmlContent = completion.choices[0].message.content;
+      // Strip markdown code fences if Groq wraps the HTML
+      if (htmlContent.startsWith('```')) {
+        htmlContent = htmlContent.replace(/^```(?:html)?\n?/, '').replace(/\n?```$/, '');
+      }
     } else {
       const ai = getAiClient();
       const response = await ai.models.generateContent({
