@@ -263,7 +263,7 @@ router.post('/slides', auth, async (req, res) => {
 
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-pro',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -418,7 +418,7 @@ Generate at least 2-3 embedded visualizations throughout the report. These shoul
 
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-pro',
+      model: 'gemini-3-flash-preview',
       contents: userPrompt,
       config: {
         systemInstruction: systemInstruction,
