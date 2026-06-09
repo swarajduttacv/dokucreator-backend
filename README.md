@@ -1,5 +1,5 @@
 <div align="center">
-
+<img width="1200" height="400" alt="dokucreator-backend banner" src="./assets/banner.png" />
 # dokucreator-backend
 
 **rest api for dokucreator — ai-powered chart, slide, and report generation**
